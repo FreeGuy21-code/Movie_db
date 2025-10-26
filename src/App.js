@@ -1,0 +1,472 @@
+import React, { useState, useEffect, useCallback } from "react";
+import "./App.css";
+
+const App = () => {
+  const [search, setSearch] = useState("");
+  const [year, setYear] = useState("");
+  const [genre, setGenre] = useState("");
+  const [sortBy, setSortBy] = useState("title");
+  const [movies, setMovies] = useState([]);
+  const [selectedMovie, setSelectedMovie] = useState(null);
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
+  const [favorites, setFavorites] = useState(() => {
+    const saved = localStorage.getItem('favorites');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const moviesPerPage = 10;
+
+  const fetchMovies = useCallback(async (page = 1) => {
+    if (!search.trim()) return;
+
+    setLoading(true);
+    setError("");
+    try {
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/movies/search?q=${search}&year=${year}&genre=${genre}&page=${page}&limit=10&sort=${sortBy}`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data.Response === "True") {
+        setMovies(data.Search);
+        setTotalResults(parseInt(data.totalResults) || 0);
+        setCurrentPage(page);
+      } else {
+        setMovies([]);
+        setError(data.Error || "No movies found.");
+        setTotalResults(0);
+      }
+    } catch (err) {
+      setError("Failed to fetch movies. Please try again.");
+      setMovies([]);
+      setTotalResults(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, year, genre, sortBy]);
+
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      if (search.length > 2) {
+        fetchMovies();
+      } else if (search.length === 0) {
+        setMovies([]);
+        setError("");
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [search, fetchMovies]);
+
+  const fetchMovieDetails = async (id) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/movies/${id}`);
+      const data = await res.json();
+      if (data.Response === "True") {
+        // Generate YouTube trailer search URL
+        const trailerSearchQuery = `${data.Title} ${data.Year} official trailer`;
+
+        // Fetch additional cast details (mock data for now - in real app would use TMDB API)
+        const castDetails = await fetchCastDetails(data.Actors);
+
+        // Fetch similar movies (mock data for now - in real app would use TMDB API)
+        const similarMovies = await fetchSimilarMovies(data.imdbID);
+
+        setSelectedMovie({
+          ...data,
+          trailerSearchQuery: trailerSearchQuery,
+          trailerEmbedUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent(trailerSearchQuery)}`,
+          castDetails: castDetails,
+          similarMovies: similarMovies
+        });
+      } else {
+        setError("Failed to fetch movie details.");
+      }
+    } catch (err) {
+      setError("Failed to fetch movie details. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchCastDetails = async (actorsString) => {
+    // Mock cast details - in real app, use TMDB API or similar
+    const actors = actorsString.split(', ');
+    return actors.map((actor, index) => ({
+      name: actor.trim(),
+      character: `Character ${index + 1}`,
+      photo: `https://via.placeholder.com/100x150/333/fff?text=${actor.charAt(0)}`
+    }));
+  };
+
+  const fetchSimilarMovies = async (imdbId) => {
+    // Mock similar movies - in real app, use TMDB API recommendations
+    try {
+      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/movies/search?q=movie&type=movie&page=1&limit=6`);
+      const data = await res.json();
+      if (data.Response === "True") {
+        return data.Search.map(movie => ({
+          ...movie,
+          similarity: Math.floor(Math.random() * 100) + 1
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to fetch similar movies:", err);
+    }
+    return [];
+  };
+
+  const closeModal = () => setSelectedMovie(null);
+
+  const handlePageChange = (page) => {
+    fetchMovies(page);
+  };
+
+  const resetFilters = () => {
+    setSearch("");
+    setYear("");
+    setGenre("");
+    setSortBy("title");
+    setMovies([]);
+    setError("");
+    setCurrentPage(1);
+    setTotalResults(0);
+  };
+
+  const toggleFavorite = (movie) => {
+    setFavorites((prev) => {
+      const isFavorite = prev.some(fav => fav.imdbID === movie.imdbID);
+      const newFavorites = isFavorite
+        ? prev.filter(fav => fav.imdbID !== movie.imdbID)
+        : [...prev, movie];
+      localStorage.setItem('favorites', JSON.stringify(newFavorites));
+      return newFavorites;
+    });
+  };
+
+  const isFavorite = (movieId) => {
+    return favorites.some(fav => fav.imdbID === movieId);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        closeModal();
+      }
+    };
+
+    if (selectedMovie) {
+      document.addEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "hidden";
+    } else {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "unset";
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "unset";
+    };
+  }, [selectedMovie]);
+
+  return (
+    <div className="app dark">
+      {/* Navigation Header */}
+      <header className="header">
+        <div className="nav-container">
+          <div className="logo">
+            <h1>🎬 MovieDB</h1>
+          </div>
+          <nav className="nav-menu">
+            <a href="#home">Home</a>
+            <a href="#movies">Movies</a>
+            <a href="#favorites" onClick={(e) => {
+              e.preventDefault();
+              setMovies(favorites);
+              setSearch("");
+              setError("");
+            }}>Favorites ({favorites.length})</a>
+            <a href="#about">About</a>
+          </nav>
+
+        </div>
+      </header>
+
+      {/* Hero Section */}
+      <section className="hero" id="home">
+        <div className="hero-content">
+          <h1 className="hero-title">Discover Your Next Favorite Movie</h1>
+          <p className="hero-subtitle">Search through millions of movies, explore genres, and find the perfect film for any mood.</p>
+          <div className="hero-search">
+            <div className="search-container">
+              <input
+                type="text"
+                placeholder="Search for movies..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && fetchMovies(1)}
+                className="hero-input"
+                aria-label="Search movies by title"
+              />
+              <button className="search-btn" onClick={() => fetchMovies(1)} aria-label="Search">
+                🔍
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="hero-bg"></div>
+      </section>
+
+      {/* Filters Section */}
+      <section className="filters-section" id="movies">
+        <div className="container">
+          <h2>Advanced Filters</h2>
+          <div className="filters">
+            <div className="filter-group">
+              <label htmlFor="year">Year</label>
+              <input
+                id="year"
+                type="number"
+                placeholder="e.g. 2020"
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+                min="1900"
+                max={new Date().getFullYear()}
+                aria-label="Filter by year"
+              />
+            </div>
+            <div className="filter-group">
+              <label htmlFor="genre">Genre</label>
+              <select
+                id="genre"
+                value={genre}
+                onChange={(e) => setGenre(e.target.value)}
+                aria-label="Filter by genre"
+              >
+                <option value="">All Genres</option>
+                <option value="Action">Action</option>
+                <option value="Adventure">Adventure</option>
+                <option value="Animation">Animation</option>
+                <option value="Biography">Biography</option>
+                <option value="Comedy">Comedy</option>
+                <option value="Crime">Crime</option>
+                <option value="Documentary">Documentary</option>
+                <option value="Drama">Drama</option>
+                <option value="Family">Family</option>
+                <option value="Fantasy">Fantasy</option>
+                <option value="Film-Noir">Film-Noir</option>
+                <option value="History">History</option>
+                <option value="Horror">Horror</option>
+                <option value="Music">Music</option>
+                <option value="Musical">Musical</option>
+                <option value="Mystery">Mystery</option>
+                <option value="Romance">Romance</option>
+                <option value="Sci-Fi">Sci-Fi</option>
+                <option value="Sport">Sport</option>
+                <option value="Thriller">Thriller</option>
+                <option value="War">War</option>
+                <option value="Western">Western</option>
+              </select>
+            </div>
+            <div className="filter-group">
+              <label htmlFor="sort">Sort By</label>
+              <select
+                id="sort"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                aria-label="Sort movies"
+              >
+                <option value="title">Title (A-Z)</option>
+                <option value="year">Year (Newest)</option>
+              </select>
+            </div>
+            <button className="reset-btn" onClick={resetFilters}>Reset Filters</button>
+          </div>
+        </div>
+      </section>
+
+      {/* Movies Section */}
+      <section className="movies-section">
+        <div className="container">
+          {loading && (
+            <div className="movie-grid">
+              {Array.from({ length: 10 }, (_, i) => (
+                <div key={i} className="skeleton-card">
+                  <div className="skeleton skeleton-poster"></div>
+                  <div className="skeleton-info">
+                    <div className="skeleton skeleton-title"></div>
+                    <div className="skeleton skeleton-year"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {error && <div className="error">{error}</div>}
+
+          <div className="movie-grid">
+            {!loading && movies.length > 0 ? (
+              movies.map((movie) => (
+                <div
+                  key={movie.imdbID}
+                  className="movie-card"
+                  onClick={() => fetchMovieDetails(movie.imdbID)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      fetchMovieDetails(movie.imdbID);
+                    }
+                  }}
+                  aria-label={`View details for ${movie.Title}`}
+                >
+                  <div className="movie-poster">
+                    <img
+                      src={movie.Poster !== "N/A" ? movie.Poster : "/placeholder.png"}
+                      alt={`${movie.Title} poster`}
+                      loading="lazy"
+                    />
+                    <button
+                      className={`favorite-btn ${isFavorite(movie.imdbID) ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(movie);
+                      }}
+                      aria-label={isFavorite(movie.imdbID) ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      {isFavorite(movie.imdbID) ? '❤️' : '🤍'}
+                    </button>
+                  </div>
+                  <div className="movie-info">
+                    <h3>
+                      {movie.Title}
+                    </h3>
+                    <p className="movie-year">{movie.Year}</p>
+                  </div>
+                </div>
+              ))
+            ) : !loading && !error && search.length > 2 ? (
+              <p>No movies found.</p>
+            ) : null}
+          </div>
+
+          {/* Pagination */}
+          {movies.length > 0 && totalResults > moviesPerPage && (
+            <div className="pagination">
+              <button
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="page-btn"
+              >
+                Previous
+              </button>
+              <span className="page-info">
+                Page {currentPage} of {Math.ceil(totalResults / moviesPerPage)}
+              </span>
+              <button
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage >= Math.ceil(totalResults / moviesPerPage)}
+                className="page-btn"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* About Section */}
+      <section className="about-section" id="about">
+        <div className="container">
+          <h2>About MovieDB</h2>
+          <p>
+            Discover millions of movies with our comprehensive database. Search by title, filter by genre and year,
+            and explore detailed information about your favorite films. Built with React and powered by the OMDB API.
+          </p>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="footer">
+        <div className="container">
+          <p>&copy; 2024 MovieDB. All rights reserved. | Powered by OMDB API</p>
+          <div className="footer-links">
+            <a href="#home">Home</a>
+            <a href="#movies">Movies</a>
+            <a href="#about">About</a>
+          </div>
+        </div>
+      </footer>
+
+      {selectedMovie && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+          >
+            <button
+              className="close-btn"
+              onClick={closeModal}
+              aria-label="Close modal"
+            >
+              ❌
+            </button>
+            <h2 id="modal-title">
+              {selectedMovie.Title} ({selectedMovie.Year})
+            </h2>
+            <div className="modal-movie-info">
+              <img
+                src={selectedMovie.Poster !== "N/A" ? selectedMovie.Poster : "/placeholder.png"}
+                alt={`${selectedMovie.Title} poster`}
+              />
+            <div className="modal-details">
+              <p className="rating">
+                <strong>⭐ {selectedMovie.imdbRating !== "N/A" ? selectedMovie.imdbRating : "N/A"}</strong> IMDb Rating
+              </p>
+              <p>
+                <strong>🎭 Genre:</strong> {selectedMovie.Genre !== "N/A" ? selectedMovie.Genre : "Not available"}
+              </p>
+              <p>
+                <strong>🎬 Director:</strong> {selectedMovie.Director !== "N/A" ? selectedMovie.Director : "Not available"}
+              </p>
+              <p>
+                <strong>👥 Cast:</strong> {selectedMovie.Actors !== "N/A" ? selectedMovie.Actors : "Not available"}
+              </p>
+              <p>
+                <strong>📜 Plot:</strong> {selectedMovie.Plot !== "N/A" ? selectedMovie.Plot : "Not available"}
+              </p>
+              <p>
+                <strong>⏱️ Runtime:</strong> {selectedMovie.Runtime !== "N/A" ? selectedMovie.Runtime : "Not available"}
+              </p>
+              <p>
+                <strong>🏷️ Rated:</strong> {selectedMovie.Rated !== "N/A" ? selectedMovie.Rated : "Not available"}
+              </p>
+
+
+
+              <div className="trailer-section">
+                <a
+                  href={selectedMovie.trailerEmbedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="trailer-btn"
+                >
+                  🎬 Watch Trailer on YouTube
+                </a>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default App;
