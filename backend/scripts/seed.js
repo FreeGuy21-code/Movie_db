@@ -164,17 +164,15 @@ const sampleMovies = [
 
 async function seedDatabase() {
   try {
-    // Start in-memory MongoDB server
-    const mongoServer = await MongoMemoryServer.create();
-    const mongoUri = mongoServer.getUri();
+    // Connect to persistent MongoDB
+    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/movie-search';
 
-    // Connect to MongoDB
     await mongoose.connect(mongoUri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
 
-    console.log('Connected to in-memory MongoDB');
+    console.log('Connected to MongoDB');
 
     // Clear existing data
     await Movie.deleteMany({});
@@ -192,10 +190,10 @@ async function seedDatabase() {
         director: movieData.Director,
         actors: movieData.Actors,
         plot: movieData.Plot,
-        language: movieData.Language,
+        language: movieData.Language.split(', ')[0], // Take first language to avoid MongoDB error
         country: movieData.Country,
         awards: movieData.Awards,
-        ratings: movieData.Ratings,
+        ratings: movieData.Ratings.map(r => ({ source: r.Source, value: r.Value })),
         imdbRating: movieData.imdbRating,
         imdbVotes: movieData.imdbVotes,
         runtime: movieData.Runtime,
@@ -203,10 +201,9 @@ async function seedDatabase() {
         released: movieData.Released,
         writer: movieData.Writer,
         boxOffice: movieData.BoxOffice,
-        production: movieData.Production,
+
         website: movieData.Website
       });
-
       await movie.save();
       console.log(`Added movie: ${movie.title}`);
     }

@@ -37,7 +37,7 @@ router.get('/search', [
 
     // Text search
     if (searchQuery) {
-      query.$text = { $search: searchQuery };
+      query.title = { $regex: searchQuery, $options: 'i' };
     }
 
     // Year filter
